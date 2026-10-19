@@ -1,5 +1,5 @@
 extends CanvasLayer
-## X：传统菜单；G：手表。各功能目前仅提供入口。
+## X：传统菜单；G：手表。小游戏内提供单人桌球。
 signal menu_state_changed
 const MENU_ITEMS := ["背包", "装备", "道具", "状态", "技能", "存档", "设置"]
 const APPS := ["B站视频", "小游戏", "时钟", "相册", "相机", "手电筒"]
@@ -17,6 +17,8 @@ var detail: Label
 var footer: Label
 var buttons: Array[Button] = []
 var controller: Node
+var minigames: Control
+var showing_games := false
 
 class WatchStrap extends Control:
 	func _draw() -> void:
@@ -129,6 +131,9 @@ func _ready() -> void:
 	detail.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	detail.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	column.add_child(detail)
+	minigames = preload("res://scripts/billiards.gd").new()
+	column.add_child(minigames)
+	minigames.hide()
 	footer = _label("", 21)
 	footer.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	column.add_child(footer)
@@ -169,6 +174,7 @@ func open(next_mode: String) -> void:
 	mode = next_mode
 	selected = 0
 	showing_placeholder = false
+	showing_games = false
 	for child in choices.get_children():
 		choices.remove_child(child)
 		child.queue_free()
@@ -213,23 +219,35 @@ func open(next_mode: String) -> void:
 
 func close() -> void:
 	mode = ""
+	minigames.hide()
 	overlay.hide()
 	menu_state_changed.emit()
 
 func _select(index: int) -> void:
-	if showing_placeholder: return
+	if showing_placeholder or showing_games: return
 	selected = index
 	_refresh()
 
 func _confirm(index: int) -> void:
 	selected = index
+	if mode == "watch" and index == 1:
+		showing_games = true
+		minigames.show_library()
+		_refresh()
+		return
 	showing_placeholder = true
 	_refresh()
 
 func _refresh() -> void:
 	watch_strap.visible = mode == "watch"
-	choices.visible = not showing_placeholder
-	detail.visible = showing_placeholder
+	choices.visible = not showing_placeholder and not showing_games
+	detail.visible = showing_placeholder and not showing_games
+	minigames.visible = showing_games
+	if showing_games:
+		subtitle.text = "小游戏 · 桌球"
+		footer.text = "Esc 返回　·　G 关闭手表"
+		return
+	subtitle.text = "应用" if mode == "watch" else controller.player.display_name
 	var entries: Array = APPS if mode == "watch" else MENU_ITEMS
 	detail.text = str(entries[selected]) + "\n\n未开发完成"
 	footer.text = "Esc 返回　·　%s 关闭" % ("G" if mode == "watch" else "X") if showing_placeholder else "方向键选择　·　Enter 确认　·　Esc 返回　·　%s 关闭" % ("G" if mode == "watch" else "X")
@@ -253,11 +271,14 @@ func _input(event: InputEvent) -> void:
 		if (mode == "menu" and key == KEY_X) or (mode == "watch" and key == KEY_G):
 			close()
 		elif key == KEY_ESCAPE:
-			if showing_placeholder:
+			if showing_games:
+				if not minigames.go_back(): showing_games = false
+				_refresh()
+			elif showing_placeholder:
 				showing_placeholder = false
 				_refresh()
 			else: close()
-		elif not showing_placeholder:
+		elif not showing_placeholder and not showing_games:
 			var columns: int = 3 if mode == "watch" else 1
 			var count: int = APPS.size() if mode == "watch" else MENU_ITEMS.size()
 			match key:
