@@ -5,6 +5,7 @@ var controller: Node
 var panel: PanelContainer
 var current_time: Label
 var previous_button: Button
+var teleport_301_button: Button
 
 func _ready() -> void:
 	layer = 60
@@ -12,7 +13,7 @@ func _ready() -> void:
 	panel = PanelContainer.new()
 	add_child(panel)
 	panel.position = Vector2(610, 150)
-	panel.custom_minimum_size = Vector2(600, 300)
+	panel.custom_minimum_size = Vector2(600, 420)
 	var style := StyleBoxFlat.new()
 	style.bg_color = Color("#142638")
 	style.border_color = Color("#89b9ce")
@@ -24,7 +25,7 @@ func _ready() -> void:
 	column.add_theme_constant_override("separation", 20)
 	panel.add_child(column)
 	var title := Label.new()
-	title.text = "调试面板 · 时间"
+	title.text = "调试面板"
 	title.add_theme_font_size_override("font_size", 30)
 	column.add_child(title)
 	current_time = Label.new()
@@ -36,6 +37,18 @@ func _ready() -> void:
 	previous_button = _button("− 上一时段", -1)
 	row.add_child(previous_button)
 	row.add_child(_button("＋ 下一时段", 1))
+	column.add_child(HSeparator.new())
+	var teleport_label := Label.new()
+	teleport_label.text = "传送"
+	teleport_label.add_theme_font_size_override("font_size", 24)
+	column.add_child(teleport_label)
+	teleport_301_button = Button.new()
+	teleport_301_button.text = "传送到301宿舍"
+	teleport_301_button.custom_minimum_size = Vector2(0, 64)
+	teleport_301_button.focus_mode = Control.FOCUS_NONE
+	teleport_301_button.add_theme_font_size_override("font_size", 25)
+	teleport_301_button.pressed.connect(_teleport_to_301)
+	column.add_child(teleport_301_button)
 	var hint := Label.new()
 	hint.text = "+ / − 切换时段（支持小键盘）\n= 或 Esc 关闭 · 第1天早上为起点"
 	hint.add_theme_font_size_override("font_size", 21)
@@ -82,3 +95,8 @@ func _input(event: InputEvent) -> void:
 		elif plus: controller._debug_step_time(1)
 		elif key in [KEY_MINUS, KEY_KP_SUBTRACT] or physical in [KEY_MINUS, KEY_KP_SUBTRACT]: controller._debug_step_time(-1)
 	get_viewport().set_input_as_handled()
+
+func _teleport_to_301() -> void:
+	# 使用正常场景切换入口，清理上铺、坐姿、对话等临时状态。
+	controller._load_place("宿舍尽头房间一", Vector2(550, 200))
+	close()

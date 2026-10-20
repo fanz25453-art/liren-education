@@ -1,20 +1,13 @@
-@tool
+﻿@tool
 extends Node2D
 ## 夜间灯具与真实局部照明；独立于 HUD，随 Map 的坐标与缩放变化。
-const STREET_SHEET = preload("res://assets/tilesets/rasak/street_lights.png")
-const GLOW_SHEET = preload("res://assets/tilesets/rasak/lamp_glow.png")
-# 灯柱落脚点；下方三盏等距排列，入口留空。
-const STREET_BASES := [
-	Vector2(1916, 1035), # 宿舍左侧小红框
-	Vector2(2930, 790), # 小卖部左上，宿舍右上
-	Vector2(1690, 1410), Vector2(2300, 1410), Vector2(2910, 1410),
-	Vector2(1685, 558), # 白房右上小红框
-	Vector2(3070, 575), # 操场右下
-]
-const STREET_DIRECTIONS := [
-	Vector2(1, -0.65), Vector2(-1, 0.20),
-	Vector2.UP, Vector2.UP, Vector2.UP,
-	Vector2(-0.5, 1.0), Vector2(0.8, 0.6),
+# 隐藏地面光源的位置，不生成灯柱、灯头或发光贴图。
+const GROUND_LIGHT_BASES := [
+	Vector2(2176,1035), # 宿舍左侧小红框
+	Vector2(3702,790), # 小卖部左上，宿舍右上
+	Vector2(1950,1410), Vector2(2816,1410), Vector2(3682,1410),
+	Vector2(2221.25,538.5), # 白房右上小红框
+	Vector2(3260,551.25), # 操场右下
 ]
 var lights: Array[PointLight2D] = []
 var glow_sprites: Array[Sprite2D] = []
@@ -38,29 +31,19 @@ func configure(map: Node2D) -> void:
 		for floor_number in range(1,6):
 			_add_ceiling_row(map.exterior_teaching_top(floor_number), map.EXTERIOR_TEACHING_SCALE, -200.0)
 		_add_hidden_area(Rect2(-200, 1150, 1640, 280), 0.22, "platform_fill")
-		_add_hidden_area(Rect2(-1390, 820, 1140, 960), 0.18, "rest_area_fill")
-		for index in range(STREET_BASES.size()):
-			_add_street_lamp(STREET_BASES[index], STREET_DIRECTIONS[index])
+		_add_hidden_area(Rect2(-1390,500,1140,1280), 0.18, "rest_area_fill")
+		for base in GROUND_LIGHT_BASES:
+			_add_ground_light(base)
+		_add_hidden_area(Rect2(240,1430,1240,660),0.20,"gate_plaza_ground")
+		_add_hidden_area(Rect2(1460,1180,map.CAMPUS_RIGHT-1460,260),0.18,"east_plaza_ground")
+		_add_hidden_area(map.outdoor_court_transform()*map.playground,0.12,"sports_ground")
 		# 宿舍上方的横向通道补光，灯具视为被建筑遮挡。
-		_light(Vector2(2306, 620), Vector2(2.0, 0.65), 0.48)
+		_light(Vector2(map.dorm.get_center().x,620),Vector2(map.dorm.size.x/364.0,0.65),0.48)
 		lights.back().set_meta("hidden_fill", true)
 	elif map.place in ["教学楼 F2", "教学楼 F3", "教学楼 F4", "教学楼 F5"]:
 		var visible_floors = map.teaching_visible_floors()
 		for index in range(visible_floors.size()):
 			_add_ceiling_row(100.0 + index * 180.0)
-
-func _sprite(sheet: Texture2D, source: Rect2, at: Vector2, sprite_scale: Vector2) -> Sprite2D:
-	var atlas := AtlasTexture.new()
-	atlas.atlas = sheet
-	atlas.region = source
-	var sprite := Sprite2D.new()
-	sprite.texture = atlas
-	sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-	sprite.position = at
-	sprite.scale = sprite_scale
-	sprite.z_index = 3
-	add_child(sprite)
-	return sprite
 
 func _light(at: Vector2, footprint: Vector2, power: float) -> void:
 	var light := PointLight2D.new()
@@ -73,14 +56,6 @@ func _light(at: Vector2, footprint: Vector2, power: float) -> void:
 	light.shadow_enabled = false
 	add_child(light)
 	lights.append(light)
-
-func _glow(at: Vector2, glow_scale: Vector2) -> void:
-	var glow := _sprite(GLOW_SHEET,Rect2(192,0,48,48),at,glow_scale)
-	var material := CanvasItemMaterial.new()
-	material.light_mode = CanvasItemMaterial.LIGHT_MODE_UNSHADED
-	material.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
-	glow.material = material
-	glow_sprites.append(glow)
 
 func _prepare_teaching_fill_texture() -> void:
 	# 宽幅均匀补光，仅在边缘柔化；光源视为藏在天花板内。
@@ -99,22 +74,11 @@ func _add_ceiling_row(top: float, vertical_scale: float = 1.0, facade_left: floa
 	lights.back().color = Color("#fff6de")
 	lights.back().set_meta("teaching_hidden_fill", true)
 
-func _add_street_lamp(base: Vector2, direction: Vector2) -> void:
-	var facing := direction.normalized()
-	var upward := facing.y < -0.95
-	var head_offset := Vector2(0, -140) if upward else Vector2(36 * signf(facing.x), -140)
-	var source := Rect2(576,432,48,144) if upward else Rect2(384,96,48,144)
-	var sprite_offset := Vector2(0,-82.8) if upward else Vector2(22 * signf(facing.x),-82.8)
-	var fixture := _sprite(STREET_SHEET,source,base+sprite_offset,Vector2(1.15,1.15))
-	fixture.flip_h = not upward and facing.x < 0.0
-	fixture.set_meta("street_base",base)
-	fixture.set_meta("light_direction",facing)
-	_glow(base+head_offset,Vector2(0.65,0.65))
-	# 光区沿灯头朝向延伸；向上的灯不再在柱脚下方形成亮斑。
-	_light(base+facing*150.0,Vector2(1.65,1.05),0.82)
-	lights.back().rotation = facing.angle()
-	lights.back().set_meta("street_base",base)
-	lights.back().set_meta("light_direction",facing)
+func _add_ground_light(base: Vector2) -> void:
+	# 柔和地面光晕，不显示实体灯具，也不会阻挡人物。
+	_light(base,Vector2(2.8,1.8),0.42)
+	lights.back().color=Color("#fff2db")
+	lights.back().set_meta("hidden_ground",true)
 
 func set_strength(value: float) -> void:
 	var strength: float = clampf(value,0.0,1.0)
@@ -133,3 +97,4 @@ func _add_hidden_area(area: Rect2, power: float, tag: String) -> void:
 	lights.back().texture = teaching_fill_texture
 	lights.back().color = Color("#fff1da")
 	lights.back().set_meta(tag, true)
+	lights.back().set_meta("hidden_ground",true)

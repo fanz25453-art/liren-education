@@ -1,4 +1,4 @@
-@tool
+﻿@tool
 extends Node2D
 
 @export_enum(
@@ -18,6 +18,7 @@ extends Node2D
 	"小卖部内部",
 	"白房内部",
 	"宿舍一楼小房间",
+	"宿舍洗澡间", "宿舍厕所",
 	"男生宿舍内部",
 	"男生宿舍 F2",
 	"男生宿舍 F3",
@@ -62,6 +63,8 @@ var night_light_strength: float = 0.0:
 		if is_instance_valid(night_lighting):
 			night_lighting.set_strength(night_light_strength)
 
+var dorm_cabinet_revealed: bool = false
+var revealed_bed_number: int = 0
 var bed_ladders: Array[Node2D] = []
 var restroom_doors_open: Array[bool] = []
 var restroom_door_bodies: Array[StaticBody2D] = []
@@ -69,20 +72,30 @@ var restroom_door_bodies: Array[StaticBody2D] = []
 # 外景把与楼上一致的180像素楼层压缩到原有教学楼范围，一楼门脚固定在1150。
 const TEACHING_DOOR_POSITIONS: Array[int] = [870, 660, 510, 290, 80]
 const TEACHING_WINDOW_POSITIONS: Array[int] = [162, 562]
-const CAMPUS_RIGHT: float = 3152.0
+const DORM_EXTRA_WIDTH: float = 512.0
+const SIDE_STAIR_EXTRA: float = 260.0
+const SIDE_STAIR_WIDTH: float = 200.0 + SIDE_STAIR_EXTRA
+const CAMPUS_RIGHT: float = 3152.0 + DORM_EXTRA_WIDTH + SIDE_STAIR_EXTRA
+const OUTDOOR_COURT_SCALE: float = 0.75
+const COURT_OFFSET := Vector2(300,100)
+const GATE_LEFT: float = 350.0
+const GATE_WIDTH: float = 460.0
+const GATEHOUSE := Rect2(270,1459,210,140)
+const GATEHOUSE_TABLE := Rect2(310,1619,110,55)
+const PLAZA_WEST_WALL := Rect2(230,1430,20,660)
 const EXTERIOR_TEACHING_SCALE: float = 700.0 / 824.0
 
 var school := Rect2(-200, 450, 1640, 700)
 var platform := Rect2(-200, 1150, 1640, 280)
-var dorm := Rect2(1942, 670, 728, 495)
-var white_house := Rect2(1490, 590, 160, 260)
-var canteen := Rect2(1440, 1440, 900, 650)
-var second_room := Rect2(2340, 1440, 812, 650)
-var shop := Rect2(2980, 800, 172, 430)
+var dorm := Rect2(1942+SIDE_STAIR_EXTRA,670,728+DORM_EXTRA_WIDTH,495)
+var white_house := Rect2(1465,575,200,410)
+var canteen := Rect2(1440,1440,900+SIDE_STAIR_EXTRA,650)
+var second_room := Rect2(2340+SIDE_STAIR_EXTRA,1440,812+DORM_EXTRA_WIDTH,650)
+var shop := Rect2(2980+DORM_EXTRA_WIDTH+SIDE_STAIR_EXTRA,800,172,430)
 var playground := Rect2(1590, 80, 1440, 470)
 var badminton_court := Rect2(1590, 80, 600, 470)
 var basketball_court := Rect2(2230, 80, 800, 470)
-var noticeboard := Rect2(600, 1380, 400, 32)
+var noticeboard := Rect2(760,1380,240,26)
 
 @onready var walls: Node2D = $Walls
 
@@ -98,6 +111,8 @@ func configure(next_place: String) -> void:
 
 	map_origin = Vector2.ZERO
 	points.clear()
+	dorm_cabinet_revealed = false
+	revealed_bed_number = 0
 	auto_transitions.clear()
 	for ladder in bed_ladders:
 		if is_instance_valid(ladder):
@@ -123,23 +138,22 @@ func configure(next_place: String) -> void:
 
 		_school_collision()
 		_campus_barriers()
+		_gatehouse_collision()
 		_block(dorm)
 		_block(white_house)
 		_block(canteen)
 		_block(second_room)
 		_block(shop)
 		_block(noticeboard)
-		for base in NIGHT_LIGHTING.STREET_BASES:
-			_block(Rect2(base - Vector2(7, 9), Vector2(14, 18)))
 
 		if place == "校园 G0":
 			_block(platform)
 			_stair_rails()
 
-			_point(Vector2(420, 1460), "左梯上到平台", "left_up", 32.0)
-			_point(Vector2(1180, 1460), "右梯上到平台", "right_up", 32.0)
+			_point(Vector2(640, 1460), "左梯上到平台", "left_up", 32.0)
+			_point(Vector2(1120, 1460), "右梯上到平台", "right_up", 32.0)
 			_point(Vector2(1465, 1290), "侧楼梯上到平台", "side_up", 32.0)
-			_point(Vector2(1690, 750), "进入白房", "white_house_enter", 45.0)
+			_point(campus_entrance_position("white_house_enter"), "进入白房", "white_house_enter", 45.0)
 			_point(campus_entrance_position("dorm_female"), "女生宿舍入口", "dorm_female", 45.0)
 			_point(campus_entrance_position("dorm_male_enter"), "进入男生宿舍", "dorm_male_enter", 45.0)
 			_point(Vector2(1400, 1780), "从左门进入食堂", "canteen_from_left", 55.0)
@@ -151,15 +165,15 @@ func configure(next_place: String) -> void:
 			_block(Rect2(1440, 0, CAMPUS_RIGHT+160-1440, 2240))
 			_block(Rect2(-200, 1430, 1640, 810))
 
-			_point(Vector2(420, 1400), "左梯下到 G0", "left_down", 48.0)
-			_point(Vector2(1180, 1400), "右梯下到 G0", "right_down", 48.0)
+			_point(Vector2(640, 1400), "左梯下到 G0", "left_down", 48.0)
+			_point(Vector2(1120, 1400), "右梯下到 G0", "right_down", 48.0)
 			_point(Vector2(1400, 1290), "侧楼梯下到右侧 G0", "side_down", 48.0)
 
 			_point(Vector2(-100, exterior_teaching_top(1)+36.0*EXTERIOR_TEACHING_SCALE), "沿左侧楼梯上二层", "teaching_west_up", 20.0)
 			_classroom_points(1, 1180.0)
 			_teaching_utility_points(1, 1180.0)
-			_point(Vector2(800, 1335), "查看布告板", "noticeboard", 45.0)
-			points[-1]["interaction_rect"] = Rect2(600, 1300, 400, 65)
+			_point(Vector2(880,1335), "查看布告板", "noticeboard", 45.0)
+			points[-1]["interaction_rect"] = Rect2(680,1300,400,65)
 
 			_point(
 				Vector2(1000, exterior_teaching_top(1)+36.0*EXTERIOR_TEACHING_SCALE),
@@ -187,6 +201,8 @@ func configure(next_place: String) -> void:
 	elif place in ["宿舍尽头房间一", "宿舍尽头房间二"]:
 		_configure_six_bed_room()
 
+	elif place in ["宿舍洗澡间", "宿舍厕所"]:
+		_configure_dorm_wet_room()
 	elif place == "白房内部":
 		map_size = Vector2(900, 700)
 		_block(Rect2(0, 0, 900, 60))
@@ -365,19 +381,28 @@ func _campus_barriers() -> void:
 	_block(Rect2(1440, 0, 20, 1150))
 
 
+func _gatehouse_collision() -> void:
+	_block(PLAZA_WEST_WALL)
+	_block(GATEHOUSE)
+	_block(GATEHOUSE_TABLE)
+	_block(Rect2(GATE_LEFT,2060,40,100))
+	_block(Rect2(GATE_LEFT+GATE_WIDTH-40,2060,40,100))
+
+
+func _front_stair_rails() -> Array[Rect2]:
+	# 竖梯与横梯统一为 70 宽，两组楼梯整体向右移动 80。
+	return [
+		Rect2(585,1430,20,265), Rect2(675,1430,20,175),
+		Rect2(675,1585,135,20), Rect2(585,1675,225,20),
+		Rect2(1155,1430,20,265), Rect2(1065,1430,20,175),
+		Rect2(950,1585,135,20), Rect2(950,1675,225,20)
+	]
+
 func _stair_rails() -> void:
-	_block(Rect2(350, 1430, 20, 310))
-	_block(Rect2(470, 1430, 20, 190))
-	_block(Rect2(470, 1600, 260, 20))
-	_block(Rect2(350, 1720, 380, 20))
-
-	_block(Rect2(1230, 1430, 20, 310))
-	_block(Rect2(1110, 1430, 20, 190))
-	_block(Rect2(870, 1600, 260, 20))
-	_block(Rect2(870, 1720, 380, 20))
-
-	_block(Rect2(1440, 1130, 200, 20))
-	_block(Rect2(1440, 1430, 200, 20))
+	for rail in _front_stair_rails():
+		_block(rail)
+	_block(Rect2(1440,1130,SIDE_STAIR_WIDTH,20))
+	_block(Rect2(1440,1430,SIDE_STAIR_WIDTH,20))
 
 
 func _text(pos: Vector2, value: String, size: int = 22) -> void:
@@ -425,11 +450,11 @@ func _building(rect: Rect2, title: String, floors: int) -> void:
 	_text(rect.position + Vector2(24, 35), title, 26)
 
 
-func _stairs(rect: Rect2, horizontal: bool = false) -> void:
+func _stairs(rect: Rect2, horizontal: bool = false, steps: int = 10) -> void:
 	draw_rect(rect, Color("#b8afa0"))
 
-	for index in range(1, 10):
-		var ratio: float = index / 10.0
+	for index in range(1,steps):
+		var ratio: float = float(index)/float(steps)
 
 		if horizontal:
 			var x: float = rect.position.x + rect.size.x * ratio
@@ -450,30 +475,16 @@ func _stairs(rect: Rect2, horizontal: bool = false) -> void:
 
 
 func _draw_l_stairs() -> void:
-	_stairs(Rect2(470, 1620, 260, 100), true)
-	draw_rect(Rect2(370, 1620, 100, 100), Color("#b8afa0"))
-	_stairs(Rect2(370, 1430, 100, 190))
-
-	_stairs(Rect2(870, 1620, 260, 100), true)
-	draw_rect(Rect2(1130, 1620, 100, 100), Color("#b8afa0"))
-	_stairs(Rect2(1130, 1430, 100, 190))
-
-	var rails: Array[Rect2] = [
-		Rect2(350, 1430, 20, 310),
-		Rect2(470, 1430, 20, 190),
-		Rect2(470, 1600, 260, 20),
-		Rect2(350, 1720, 380, 20),
-		Rect2(1230, 1430, 20, 310),
-		Rect2(1110, 1430, 20, 190),
-		Rect2(870, 1600, 260, 20),
-		Rect2(870, 1720, 380, 20)
-	]
-
-	for rail in rails:
-		draw_rect(rail, Color("#626974"))
-
-	_text(Vector2(530, 1780), "左梯入口", 20)
-	_text(Vector2(930, 1780), "右梯入口", 20)
+	_stairs(Rect2(675,1605,135,70),true)
+	draw_rect(Rect2(605,1605,70,70),Color("#b8afa0"))
+	_stairs(Rect2(605,1430,70,175))
+	_stairs(Rect2(950,1605,135,70),true)
+	draw_rect(Rect2(1085,1605,70,70),Color("#b8afa0"))
+	_stairs(Rect2(1085,1430,70,175))
+	for rail in _front_stair_rails():
+		draw_rect(rail,Color("#626974"))
+	_text(Vector2(660,1735),"左梯入口",20)
+	_text(Vector2(980,1735),"右梯入口",20)
 
 
 func _draw() -> void:
@@ -490,6 +501,8 @@ func _draw() -> void:
 		_draw_dorm_interior()
 	elif place in ["宿舍尽头房间一", "宿舍尽头房间二"]:
 		_draw_dorm_room()
+	elif place in ["宿舍洗澡间", "宿舍厕所"]:
+		_draw_dorm_wet_room()
 	elif place == "白房内部":
 		_draw_white_house_interior()
 	elif place == "一楼办公室":
@@ -511,12 +524,12 @@ func _draw() -> void:
 
 
 func _draw_campus() -> void:
-	draw_rect(Rect2(map_origin, map_size), Color("#557b50"))
+	draw_rect(Rect2(map_origin-Vector2(4096,4096),map_size+Vector2(8192,8192)),Color("#557b50"))
 	draw_rect(Rect2(240, 1440, 1240, 650), Color("#b3b1a4"))
 	draw_rect(Rect2(1460, 570, CAMPUS_RIGHT-1460, 1520), Color("#b3b1a4"))
 
 	_text(Vector2(650, 1870), "校门内广场 G0", 28)
-	_text(Vector2(2470, 1320), "右侧广场 G0", 28)
+	_text(Vector2(2470+DORM_EXTRA_WIDTH*0.5+SIDE_STAIR_EXTRA,1320), "右侧广场 G0", 28)
 
 	draw_rect(Rect2(-200, 1430, 1640, 22), Color("#575a60"))
 	draw_rect(platform, Color("#c6c1b4"))
@@ -533,11 +546,11 @@ func _draw_campus() -> void:
 			Color("#aaa699"), 1
 		)
 
-	_text(Vector2(650, 1300), "教学楼一层开放平台", 28)
+	_text(Vector2(650, 1210), "教学楼一层开放平台", 28)
 
-	draw_line(Vector2(160, 1430), Vector2(370, 1430), Color("#414a55"), 7)
-	draw_line(Vector2(470, 1430), Vector2(1130, 1430), Color("#414a55"), 7)
-	draw_line(Vector2(1230, 1430), Vector2(1440, 1430), Color("#414a55"), 7)
+	draw_line(Vector2(160, 1430), Vector2(605, 1430), Color("#414a55"), 7)
+	draw_line(Vector2(675, 1430), Vector2(1085, 1430), Color("#414a55"), 7)
+	draw_line(Vector2(1155, 1430), Vector2(1440, 1430), Color("#414a55"), 7)
 
 	_draw_exterior_teaching_building()
 	_draw_dorm_exterior()
@@ -561,25 +574,49 @@ func _draw_campus() -> void:
 	draw_rect(Rect2(1440, 0, 20, 1150), Color("#50595b"))
 	draw_line(Vector2(CAMPUS_RIGHT, 0), Vector2(CAMPUS_RIGHT, 2090), Color("#50595b"), 10)
 	draw_line(Vector2(0, 0), Vector2(CAMPUS_RIGHT, 0), Color("#50595b"), 10)
-	draw_line(Vector2(0, 2090), Vector2(570, 2090), Color("#50595b"), 10)
-	draw_line(Vector2(1030, 2090), Vector2(CAMPUS_RIGHT, 2090), Color("#50595b"), 10)
+	draw_line(Vector2(0, 2090), Vector2(GATE_LEFT, 2090), Color("#50595b"), 10)
+	draw_line(Vector2(GATE_LEFT+GATE_WIDTH, 2090), Vector2(CAMPUS_RIGHT, 2090), Color("#50595b"), 10)
 
 	_draw_noticeboard()
 	_draw_l_stairs()
 
-	_stairs(Rect2(1440, 1150, 200, 280), true)
-	draw_rect(Rect2(1440, 1130, 200, 20), Color("#626974"))
-	draw_rect(Rect2(1440, 1430, 200, 20), Color("#626974"))
+	_stairs(Rect2(1440,1150,SIDE_STAIR_WIDTH,280),true,23)
+	draw_rect(Rect2(1440,1130,SIDE_STAIR_WIDTH,20), Color("#626974"))
+	draw_rect(Rect2(1440,1430,SIDE_STAIR_WIDTH,20), Color("#626974"))
 	_text(Vector2(1465, 1110), "平台 ↔ G0", 20)
 
 	_draw_rest_area()
 
 	_draw_blue_sports_courts()
 
-	draw_rect(Rect2(570, 2090, 460, 35), Color("#48515f"))
-	draw_rect(Rect2(570, 2060, 40, 100), Color("#767f8b"))
-	draw_rect(Rect2(990, 2060, 40, 100), Color("#767f8b"))
-	_text(Vector2(725, 2120), "校门", 28)
+	_draw_gatehouse()
+	draw_rect(Rect2(GATE_LEFT,2090,GATE_WIDTH,35),Color("#48515f"))
+	draw_rect(Rect2(GATE_LEFT,2060,40,100),Color("#767f8b"))
+	draw_rect(Rect2(GATE_LEFT+GATE_WIDTH-40,2060,40,100),Color("#767f8b"))
+	_text(Vector2(GATE_LEFT+155,2120),"校门",28)
+
+
+func _draw_gatehouse() -> void:
+	# 左侧实墙连续接住平台和南边界，封住通向草地的路。
+	draw_rect(PLAZA_WEST_WALL,Color("#7f897d"))
+	draw_rect(Rect2(230,1430,6,660),Color("#aeb6a3"))
+	for y in range(1450,2090,70):
+		draw_line(Vector2(236,y),Vector2(250,y),Color("#6e7b70"),1)
+	# 门卫室外观：封闭墙体、房檐、原版窗户和关闭的侧门。
+	draw_rect(Rect2(GATEHOUSE.position+Vector2(5,6),GATEHOUSE.size),Color(0.15,0.19,0.16,0.18))
+	draw_rect(GATEHOUSE,Color("#dfd9c1"))
+	draw_rect(Rect2(270,1477,210,5),Color("#b8b59d"))
+	draw_rect(Rect2(263,1452,224,26),Color("#657c70"))
+	_text(Vector2(315,1473),"保安厅",20)
+	draw_texture_rect_region(CLASSROOM_CLOCK_SHEET,Rect2(291,1490,82,96),Rect2(0,64,48,56))
+	draw_rect(Rect2(421,1510,43,89),Color("#8a907c"))
+	draw_rect(Rect2(426,1515,33,84),Color("#c6d1c4"))
+	draw_rect(Rect2(431,1522,23,28),Color("#a8c8c9"))
+	draw_circle(Vector2(452,1563),2,Color("#626d5e"))
+	draw_rect(Rect2(270,1593,151,6),Color("#aaa68f"))
+	# 使用原版完整木桌，桌腿和桌面一起呈现。
+	draw_texture_rect_region(OFFICE_SHEET,GATEHOUSE_TABLE,Rect2(0,504,96,72))
+
 
 
 func _draw_exterior_teaching_building() -> void:
@@ -827,13 +864,17 @@ func _draw_canteen_interior() -> void:
 	_text(Vector2(145, 510), "左门 · 校门广场", 20)
 	_text(Vector2(1080, 140), "上门 · 右上广场", 18)
 
+func _white_house_door_y() -> float:
+	return white_house.position.y+white_house.size.y*(160.0/260.0)
+
 func _draw_white_house() -> void:
-	draw_rect(white_house, Color("#727c7b"), false, 6)
-	draw_rect(white_house, Color("#f0efea"))
-	draw_rect(Rect2(1490, 590, 160, 26), Color("#d7dddc"))
-	draw_rect(Rect2(1624, 720, 26, 60), Color("#65716c"))
-	draw_rect(Rect2(1630, 726, 20, 48), Color("#a4bebc"))
-	_text(Vector2(1510, 655), "白房", 22)
+	draw_rect(white_house,Color("#727c7b"),false,6)
+	draw_rect(white_house,Color("#f0efea"))
+	draw_rect(Rect2(white_house.position,Vector2(white_house.size.x,26)),Color("#d7dddc"))
+	var door_y: float = _white_house_door_y()
+	draw_rect(Rect2(white_house.end.x-26,door_y-35,26,70),Color("#65716c"))
+	draw_rect(Rect2(white_house.end.x-20,door_y-29,20,58),Color("#a4bebc"))
+	_text(white_house.position+Vector2(20,65),"白房",22)
 
 
 func _draw_white_house_interior() -> void:
@@ -956,18 +997,11 @@ func _draw_dorm_interior() -> void:
 
 
 func _dorm_beds() -> Array[Rect2]:
-	return [Rect2(140, 150, 180, 180), Rect2(140, 650, 180, 180), Rect2(780, 650, 180, 180)]
+	return [Rect2(140, 280, 180, 300), Rect2(140, 650, 180, 300), Rect2(780, 650, 180, 300)]
 
 
 func _dorm_partitions() -> Array[Rect2]:
-	return [
-		# 两段横墙，中间保留 320 像素通道。
-		Rect2(80, 1120, 310, 20), Rect2(710, 1120, 310, 20),
-		# 洗澡间和厕所均向左开口，无门。
-		Rect2(690, 1200, 330, 16), Rect2(1004, 1200, 16, 230), Rect2(690, 1414, 330, 16),
-		Rect2(690, 1480, 330, 16), Rect2(1004, 1480, 16, 230), Rect2(690, 1694, 330, 16)
-	]
-
+	return [Rect2(80, 1010, 310, 55), Rect2(710, 1010, 310, 55)]
 
 func _configure_six_bed_room() -> void:
 	map_size = Vector2(1100, 1800)
@@ -982,23 +1016,28 @@ func _configure_six_bed_room() -> void:
 		var ladder = CLIMBABLE_LADDER.new()
 		ladder.name = "BedLadder%d" % (index + 1)
 		ladder.bed_number = index + 1
+		ladder.use_rasak_steps = true
+		ladder.horizontal_side_ladder = true
+		ladder.horizontal_length = 70.0
 		ladder.lean_direction = -1 if index == 2 else 1
 		ladder.angle_from_vertical = 12.0
 		ladder.upper_side_distance = 52.0
-		ladder.top_hook_length = 22.0
-		ladder.position = Vector2(bed.position.x - 22 if index == 2 else bed.end.x + 22, bed.position.y + 70)
+		ladder.top_hook_length = 0.0
+		ladder.position = Vector2(bed.position.x if index == 2 else bed.end.x, bed.position.y + 70)
 		add_child(ladder)
 		bed_ladders.append(ladder)
 		_point(to_local(ladder.get_landing_position()), "沿梯子上%d号上铺" % (index + 1), "bed_ladder_up", 48.0)
 		points[-1]["ladder"] = ladder
-	for cabinet in _dorm_cabinets():
-		_block(cabinet)
+	_block(Rect2(790, 80, 230, 430))
+	_point(Vector2(735, 290), "查看柜子和台面", "dorm_cabinet_reveal", 55.0)
 	for wall in _dorm_partitions():
 		_block(wall)
-	_block(Rect2(140, 1240, 180, 400))
-	_block(Rect2(830, 1550, 80, 90))
+	for fixture in [Rect2(140, 1130, 180, 160), Rect2(140, 1380, 180, 120), Rect2(140, 1540, 180, 120), Rect2(760, 1140, 260, 210), Rect2(760, 1450, 260, 210)]:
+		_block(fixture)
+	_point(Vector2(715, 1245), "进入洗澡间", "dorm_shower_enter", 45.0)
+	_point(Vector2(715, 1555), "进入厕所", "dorm_toilet_enter", 45.0)
 	if place == "宿舍尽头房间一":
-		_block(Rect2(744, 174, 32, 32))
+		_block(Rect2(634, 174, 32, 32))
 	if place == "宿舍尽头房间一":
 		var noon_rest_position := to_local(bed_ladders[0].get_upper_position())
 		_point(noon_rest_position, "午休到下午", "time_rest_noon", 22.0)
@@ -1013,34 +1052,31 @@ func _configure_six_bed_room() -> void:
 	_point(Vector2(550, 120), "返回三楼走廊", exit_action, 45.0)
 
 
+func set_bed_roof_revealed(number: int) -> void:
+	revealed_bed_number = number
+	queue_redraw()
+
 func _draw_bunk_bed(rect: Rect2, number: int) -> void:
-	# 自绘明亮木色上下铺，不再使用灰色图块。
-	draw_rect(Rect2(rect.position + Vector2(6, 8), rect.size), Color(0.20, 0.17, 0.12, 0.12))
-	for level in range(2):
-		var surface := Rect2(rect.position + Vector2(10, 18 + level * 82), Vector2(rect.size.x - 20, 58))
-		var mattress := StyleBoxFlat.new()
-		mattress.bg_color = Color("#f9f5e9")
-		mattress.border_color = Color("#d6d3c7")
-		mattress.set_border_width_all(2)
-		mattress.set_corner_radius_all(5)
-		draw_style_box(mattress, surface)
-		var pillow_on_left: bool = number == 3
-		var quilt_x: float = surface.position.x + (4 if pillow_on_left else 37)
-		draw_rect(Rect2(quilt_x, surface.position.y + 5, surface.size.x - 42, 48), Color("#a9d5e7") if level == 0 else Color("#b9e0e7"))
-		for stripe in range(3):
-			draw_line(Vector2(quilt_x + 8, surface.position.y + 15 + stripe * 12), Vector2(quilt_x + surface.size.x - 50, surface.position.y + 15 + stripe * 12), Color("#d2edf1"), 2)
-		var pillow_x: float = surface.position.x + (surface.size.x - 32 if pillow_on_left else 4)
-		draw_rect(Rect2(pillow_x, surface.position.y + 9, 27, 38), Color("#ffffff"))
-		draw_rect(Rect2(surface.position.x - 4, surface.end.y, surface.size.x + 8, 9), Color("#c4a078"))
-		draw_line(Vector2(surface.position.x - 3, surface.end.y + 1), Vector2(surface.end.x + 3, surface.end.y + 1), Color("#f0d6ac"), 3)
-	for post_x in [rect.position.x, rect.end.x - 8]:
-		draw_rect(Rect2(post_x, rect.position.y + 3, 8, rect.size.y - 3), Color("#bd976d"))
-		draw_line(Vector2(post_x + 2, rect.position.y + 5), Vector2(post_x + 2, rect.end.y - 2), Color("#efd8b4"), 2)
-	# 上铺护栏和中柱，床的两个层次保持可辨认。
-	draw_line(rect.position + Vector2(8, 83), rect.position + Vector2(rect.size.x - 8, 83), Color("#e2c297"), 6)
-	for x in [30, 75, 120, 155]:
-		draw_line(rect.position + Vector2(x, 76), rect.position + Vector2(x, 88), Color("#b9966b"), 3)
-	_text(rect.position + Vector2(0, -12), "%d号上下铺 · 2人" % number, 18)
+	# 上下铺完全重合，只绘制可见的上铺；不再露出下铺边缘。
+	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	var blue := Color(1.25, 1.55, 1.75)
+	var upper := rect.grow(-6)
+	draw_texture_rect_region(BEDROOM_SHEET, upper, Rect2(240, 48, 48, 144), blue)
+	# 顶板四角与床身完全对齐，保持竖直、无透视斜角。
+	var alpha: float = 0.14 if revealed_bed_number == number else 1.0
+	var roof := PackedVector2Array([rect.position, Vector2(rect.end.x, rect.position.y), rect.end, Vector2(rect.position.x, rect.end.y)])
+	draw_colored_polygon(roof, Color(0.81, 0.55, 0.22, alpha))
+	draw_polyline(PackedVector2Array([roof[0],roof[1],roof[2],roof[3],roof[0]]), Color(0.61,0.37,0.13,alpha), 4, true)
+	for index in range(1, 7):
+		var grain := PackedVector2Array()
+		for step in range(13):
+			var y: float = 8 + step * (rect.size.y - 48) / 12.0
+			var x: float = index * (rect.size.x - 14) / 7.0 + sin(step * 0.65 + index) * 2.4
+			grain.append(rect.position + Vector2(x, y))
+		draw_polyline(grain, Color(0.59,0.35,0.12,alpha * 0.55), 1.5, true)
+	for post in [rect.position, rect.position + Vector2(rect.size.x - 6, 0)]:
+		draw_rect(Rect2(post, Vector2(6, rect.size.y)), Color(0.69,0.43,0.16,alpha))
+	_text(rect.position + Vector2(0, -20), "%d号上下铺 · 2人" % number, 18)
 
 func _draw_dorm_room() -> void:
 	draw_rect(Rect2(Vector2.ZERO, map_size), Color("#e0ddd1"))
@@ -1056,32 +1092,28 @@ func _draw_dorm_room() -> void:
 	var beds: Array[Rect2] = _dorm_beds()
 	for index in range(beds.size()):
 		_draw_bunk_bed(beds[index], index + 1)
-	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-	for cabinet in _dorm_cabinets():
-		draw_texture_rect_region(BEDROOM_SHEET, cabinet, Rect2(528, 504, 48, 104))
+	_draw_dorm_cabinet_stack()
 	for wall in _dorm_partitions():
-		draw_rect(wall, Color("#747e7a"))
-		draw_line(wall.position, Vector2(wall.end.x, wall.position.y), Color("#e8ebe3"), 3)
-	# 左下方的洗漱台。
-	draw_rect(Rect2(140, 1240, 180, 400), Color("#778c8e"))
-	for sink_y in [1270, 1390, 1510]:
-		draw_rect(Rect2(160, sink_y, 140, 90), Color("#eeeee5"))
-		draw_rect(Rect2(176, sink_y + 16, 108, 58), Color("#aacbd0"))
-		draw_line(Vector2(215, sink_y + 4), Vector2(238, sink_y + 20), Color("#667f86"), 6)
-	_text(Vector2(145, 1215), "洗漱台", 22)
-	# 上侧 U 形隔间：淋浴；下侧 U 形隔间：厕所。
-	_text(Vector2(785, 1245), "洗澡间", 22)
-	draw_line(Vector2(960, 1240), Vector2(920, 1260), Color("#637d88"), 7)
-	draw_circle(Vector2(915, 1265), 12, Color("#8fabb2"))
-	for drop in range(4):
-		draw_line(Vector2(900 + drop * 12, 1288), Vector2(892 + drop * 12, 1314), Color("#8cb9ca"), 2)
-	_text(Vector2(785, 1520), "WC · 厕所", 22)
-	draw_rect(Rect2(830, 1550, 80, 90), Color("#eeeee9"))
-	draw_circle(Vector2(870, 1595), 29, Color("#fafaf4"))
-	draw_circle(Vector2(870, 1595), 17, Color("#a5bbb9"))
+		draw_rect(wall, Color("#e3e0d1"))
+		draw_line(wall.position, Vector2(wall.end.x, wall.position.y), Color("#faf7ea"), 5)
+		draw_line(Vector2(wall.position.x, wall.end.y), wall.end, Color("#939e96"), 4)
+	_draw_dorm_basin(Rect2(140, 1130, 180, 160), true)
+	_text(Vector2(140, 1110), "洗衣池", 21)
+	for y in [1380, 1540]:
+		_draw_dorm_basin(Rect2(140, y, 180, 120), false)
+	_text(Vector2(140, 1360), "洗漱台", 21)
+	for item in [{"rect": Rect2(760, 1140, 260, 210), "title": "洗澡间"}, {"rect": Rect2(760, 1450, 260, 210), "title": "厕所"}]:
+		var room: Rect2 = item.rect
+		draw_rect(room, Color("#d6dfd8"))
+		draw_rect(room, Color("#7d928a"), false, 9)
+		_text(room.position + Vector2(65, 40), item.title, 24)
+		var door := Rect2(room.position + Vector2(-8, 65), Vector2(20, 80))
+		draw_rect(door, Color("#7c6653"))
+		draw_rect(door.grow(-3), Color("#e6e2d3"))
+		draw_circle(door.position + Vector2(5, 58), 2, Color("#78684b"))
 	if place == "宿舍尽头房间一":
 		# 足球仅在当前这一间出现，不复制到其他宿舍。
-		var ball := Vector2(760, 190)
+		var ball := Vector2(650, 190)
 		draw_circle(ball + Vector2(3, 5), 18, Color(0, 0, 0, 0.16))
 		draw_circle(ball, 16, Color("#f3f0e4"))
 		var patch := PackedVector2Array()
@@ -1094,7 +1126,7 @@ func _draw_dorm_room() -> void:
 			draw_line(ball + Vector2(cos(angle), sin(angle)) * 7.0, ball + Vector2(cos(angle), sin(angle)) * 15.0, Color("#566263"), 1.5)
 func _draw_noticeboard() -> void:
 	# 空白展示面，内容由后续制作时补充。
-	draw_rect(Rect2(608, 1386, 400, 32), Color(0, 0, 0, 0.16))
+	draw_rect(Rect2(noticeboard.position + Vector2(8,6),noticeboard.size), Color(0, 0, 0, 0.16))
 	draw_rect(noticeboard, Color("#675347"))
 	draw_rect(noticeboard.grow(-5), Color("#d9d3bb"))
 	draw_line(noticeboard.position, Vector2(noticeboard.end.x, noticeboard.position.y), Color("#9a8870"), 3)
@@ -1237,24 +1269,24 @@ func _canteen_stools() -> Array[Rect2]:
 			stools.append(Rect2(table.position.x - 30, table.position.y + offset_y, 20, 20))
 			stools.append(Rect2(table.end.x + 10, table.position.y + offset_y, 20, 20))
 	return stools
+func _rest_bike_positions() -> Array[Vector2]:
+	# 原地踏车器沿最右侧竖直等距排列，止于平台入口上方。
+	return [Vector2(-60,560),Vector2(-60,680),Vector2(-60,800),Vector2(-60,920),Vector2(-60,1040)]
+
 func _configure_rest_area_layout() -> void:
-	# 在校园左侧展开；右边继续绘制原校园，保持室外外景。
-	map_origin = Vector2(-1200, 0)
-	map_size = Vector2(4272, 2240)
-	_block(Rect2(-1120, 800, 20, 1000))
-	_block(Rect2(-1100, 800, 1140, 20))
-	_block(Rect2(-1100, 1780, 1140, 20))
-	_block(Rect2(40, 820, 20, 330))
-	_block(Rect2(40, 1430, 20, 350))
-	_block(Rect2(-1100, 1100, 650, 522))
-	_block(Rect2(-1100, 1530, 650, 92))
-	_block(Rect2(-930, 900, 240, 120))
-	for bike_y in [1100, 1220, 1340, 1460, 1580]:
-		_block(Rect2(-160, bike_y, 90, 60))
-	_point(Vector2(-410, 1270), "查看左侧宿舍", "rest_dorm_locked", 45.0)
-	_point(Vector2(-980, 1665), "休息区教室一", "room_closed", 40.0)
-	_point(Vector2(-760, 1665), "休息区教室二", "room_closed", 40.0)
-	_point(Vector2(-540, 1665), "休息区办公室", "room_closed", 40.0)
+	_block(Rect2(-1120,480,20,1320))
+	_block(Rect2(-1100,480,1140,20))
+	_block(Rect2(-1100,1780,1140,20))
+	_block(Rect2(40,500,20,650))
+	_block(Rect2(40,1430,20,350))
+	_block(Rect2(-1100,780,650,842))
+	_block(Rect2(-930,580,240,120))
+	for at in _rest_bike_positions():
+		_block(Rect2(at,Vector2(90,60)))
+	_point(Vector2(-410,1105),"查看左侧宿舍","rest_dorm_locked",45.0)
+	_point(Vector2(-980,1665),"休息区教室一","room_closed",40.0)
+	_point(Vector2(-760,1665),"休息区教室二","room_closed",40.0)
+	_point(Vector2(-540,1665),"休息区办公室","room_closed",40.0)
 
 
 func _draw_rest_steps() -> void:
@@ -1266,35 +1298,39 @@ func _draw_rest_steps() -> void:
 	draw_line(Vector2(-250, 1430), Vector2(-200, 1430), Color("#676f67"), 3)
 
 func _draw_rest_area_layout() -> void:
-	draw_rect(Rect2(-1100, 820, 1140, 960), Color("#b9b7a7"))
-	draw_rect(Rect2(-1100, 820, 1140, 280), Color("#8b9d83"))
-	_text(Vector2(-1050, 860), "休息区 · 乒乓球活动区", 24)
-	# 左侧围墙，上方只有一张乒乓球桌。
-	draw_rect(Rect2(-1120, 800, 20, 1000), Color("#7c8680"))
-	draw_rect(Rect2(-1100, 800, 1140, 20), Color("#7c8680"))
-	draw_line(Vector2(-1110, 810), Vector2(-1110, 1780), Color("#d6d8c9"), 4)
-	draw_rect(Rect2(-925, 908, 240, 120), Color(0, 0, 0, 0.18))
-	draw_rect(Rect2(-930, 900, 240, 120), Color("#3a737c"))
-	draw_rect(Rect2(-930, 900, 240, 120), Color("#d9e4da"), false, 4)
-	draw_line(Vector2(-930, 960), Vector2(-690, 960), Color("#d9e4da"), 2)
-	draw_line(Vector2(-810, 896), Vector2(-810, 1024), Color("#edf0dd"), 6)
-	# 中间封闭宿舍，右侧留纵向活动通道。
-	_building(Rect2(-1100, 1100, 650, 340), "宿舍 · 暂不开放", 3)
-	draw_rect(Rect2(-470, 1235, 20, 70), Color("#aab8af"))
-	for bike_y in [1100, 1220, 1340, 1460, 1580]:
-		_draw_exercise_bike(Vector2(-160, bike_y))
-	_text(Vector2(-285, 1075), "原地踏车器", 22)
-	# 三扇门朝下，门下方留通道：教室、教室、办公室。
-	draw_rect(Rect2(-1100, 1440, 650, 90), Color("#747e8c"))
-	draw_rect(Rect2(-1100, 1530, 650, 92), Color("#c9c5b8"))
-	draw_rect(Rect2(-1100, 1530, 650, 14), Color("#6e7a73"))
-	for door_x in [-980, -760, -540]:
-		draw_rect(Rect2(door_x - 32, 1544, 64, 78), Color("#606c66"))
-		draw_rect(Rect2(door_x - 26, 1550, 52, 72), Color("#aebfb5"))
-		draw_circle(Vector2(door_x + 15, 1592), 3, Color("#5b6962"))
-	draw_rect(Rect2(40, 820, 20, 330), Color("#777e73"))
-	draw_rect(Rect2(40, 1430, 20, 350), Color("#777e73"))
-	_text(Vector2(-390, 1740), "开放式休息区", 24)
+	draw_rect(Rect2(-1100,500,1140,1280),Color("#b9b7a7"))
+	draw_rect(Rect2(-1100,500,1140,280),Color("#8b9d83"))
+	_text(Vector2(-1050,540),"休息区 · 乒乓球活动区",24)
+	draw_rect(Rect2(-1120,480,20,1320),Color("#7c8680"))
+	draw_rect(Rect2(-1100,480,1140,20),Color("#7c8680"))
+	draw_line(Vector2(-1110,490),Vector2(-1110,1780),Color("#d6d8c9"),4)
+	# 乒乓球桌与上边界一同向上移动 320。
+	draw_rect(Rect2(-925,588,240,120),Color(0,0,0,0.18))
+	draw_rect(Rect2(-930,580,240,120),Color("#3a737c"))
+	draw_rect(Rect2(-930,580,240,120),Color("#d9e4da"),false,4)
+	draw_line(Vector2(-930,640),Vector2(-690,640),Color("#d9e4da"),2)
+	draw_line(Vector2(-810,576),Vector2(-810,704),Color("#edf0dd"),6)
+	# 方形封闭宿舍，不增加楼层；下方既有三扇门仍然保持关闭。
+	var closed_dorm:=Rect2(-1100,780,650,650)
+	draw_rect(Rect2(closed_dorm.position+Vector2(6,8),closed_dorm.size),Color("#69746f"))
+	draw_rect(closed_dorm,Color("#89959c"))
+	draw_rect(Rect2(-1100,780,650,50),Color("#48596a"))
+	_text(Vector2(-1075,815),"宿舍 · 暂不开放",26)
+	draw_rect(Rect2(-1100,1420,650,20),Color("#68787c"))
+	draw_rect(Rect2(-470,1070,20,70),Color("#aab8af"))
+	for at in _rest_bike_positions():
+		_draw_exercise_bike(at)
+	_text(Vector2(-115,535),"原地踏车器",22)
+	draw_rect(Rect2(-1100,1440,650,90),Color("#747e8c"))
+	draw_rect(Rect2(-1100,1530,650,92),Color("#c9c5b8"))
+	draw_rect(Rect2(-1100,1530,650,14),Color("#6e7a73"))
+	for door_x in [-980,-760,-540]:
+		draw_rect(Rect2(door_x-32,1544,64,78),Color("#606c66"))
+		draw_rect(Rect2(door_x-26,1550,52,72),Color("#aebfb5"))
+		draw_circle(Vector2(door_x+15,1592),3,Color("#5b6962"))
+	draw_rect(Rect2(40,500,20,650),Color("#777e73"))
+	draw_rect(Rect2(40,1430,20,350),Color("#777e73"))
+	_text(Vector2(-390,1740),"开放式休息区",24)
 
 
 func _draw_exercise_bike(pos: Vector2) -> void:
@@ -1473,6 +1509,7 @@ func _draw_shop_interior() -> void:
 
 func campus_entrance_position(action: String) -> Vector2:
 	match action:
+		"white_house_enter": return Vector2(white_house.end.x+40,_white_house_door_y())
 		"dorm_female": return Vector2(dorm.position.x-40,dorm.end.y-40)
 		"dorm_male_enter": return Vector2(dorm.end.x+40,dorm.end.y-40)
 		"shop_enter": return Vector2(shop.position.x-40,shop.position.y+215)
@@ -1494,7 +1531,8 @@ func _draw_dorm_exterior() -> void:
 		var wall_height: float = pitch*0.68
 		draw_rect(Rect2(dorm.position.x+8,top,dorm.size.x-16,wall_height),Color("#eee3c7"))
 		draw_line(Vector2(dorm.position.x+8,top+wall_height),Vector2(dorm.end.x-8,top+wall_height),Color("#a89b7b"),3)
-		for column in range(6):
+		var window_count: int = maxi(1,int((dorm.size.x-207.0)/98.0)+1)
+		for column in range(window_count):
 			var x: float = dorm.position.x+35+column*98
 			var window := Rect2(x,top+14,62,32)
 			draw_rect(window.grow(3),Color("#8b8979"))
@@ -1524,9 +1562,16 @@ func _draw_rubber_surface(rect: Rect2, title: String) -> void:
 		draw_line(Vector2(rect.position.x+6,y),Vector2(rect.end.x-6,y),Color(0.6,0.85,0.95,0.07),1)
 	_text(Vector2(rect.get_center().x-55,rect.position.y+30),title,22)
 
+func outdoor_court_transform() -> Transform2D:
+	# 整组以原羽毛球场左上角为锚点缩放，间隔、场线和球网一并缩小。
+	return Transform2D(Vector2(OUTDOOR_COURT_SCALE,0),Vector2(0,OUTDOOR_COURT_SCALE),badminton_court.position*(1.0-OUTDOOR_COURT_SCALE)+Vector2(SIDE_STAIR_EXTRA,0)+COURT_OFFSET)
+
 func _draw_blue_sports_courts(show_titles: bool = true) -> void:
+	var transform: Transform2D = outdoor_court_transform()
+	draw_set_transform(transform.origin,0,Vector2.ONE*OUTDOOR_COURT_SCALE)
 	_draw_badminton_court(show_titles)
 	_draw_basketball_court(show_titles)
+	draw_set_transform(Vector2.ZERO)
 
 func _draw_badminton_court(show_title: bool = true) -> void:
 	_draw_rubber_surface(badminton_court, "羽毛球场" if show_title else "")
@@ -1723,3 +1768,106 @@ func _draw_teaching_inner_hall() -> void:
 func teaching_class_number(floor_number: int, left_class: bool) -> int:
 	var right_class: int = 9 if floor_number == 1 else (floor_number - 2) * 2 + 1
 	return right_class + (1 if left_class else 0)
+
+func toggle_dorm_cabinet() -> void:
+	dorm_cabinet_revealed = not dorm_cabinet_revealed
+	for point in points:
+		if point.action == "dorm_cabinet_reveal":
+			point.title = "恢复柜子上层" if dorm_cabinet_revealed else "查看柜子和台面"
+	queue_redraw()
+
+func _draw_cabinet_doors(rect: Rect2, count: int, color: Color) -> void:
+	draw_rect(rect, color.darkened(0.15))
+	var width: float = rect.size.x / count
+	for index in range(count):
+		var door := Rect2(rect.position + Vector2(index * width + 3, 3), Vector2(width - 6, rect.size.y - 6))
+		draw_rect(door, color)
+		draw_rect(door, color.lightened(0.15), false, 2)
+		draw_line(door.position + Vector2(door.size.x - 9, door.size.y * 0.45), door.position + Vector2(door.size.x - 9, door.size.y * 0.65), Color(0.35, 0.38, 0.34, color.a), 3)
+
+func _dorm_cabinet_stack_rect() -> Rect2:
+	return Rect2(790, 80, 230, 430)
+
+func _draw_dorm_cabinet_stack() -> void:
+	var footprint := _dorm_cabinet_stack_rect()
+	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	draw_rect(Rect2(footprint.position + Vector2(3,5), footprint.size), Color(0.2,0.20,0.15,0.13))
+	# 左面朝向人物，但画面只展示柜体侧板，不绘制门、抽屉或把手。
+	# 内部结构在正常状态下被侧板遮挡；透视上两层后露出台面。
+	draw_rect(Rect2(800,88,210,260), Color("#dfcfb2"))
+	draw_rect(Rect2(800,90,210,45), Color("#b79b75"))
+	draw_rect(Rect2(800,300,210,48), Color("#b79b75"))
+	draw_rect(Rect2(802,260,202,35), Color("#f1dfbc"))
+	draw_line(Vector2(802,260), Vector2(1004,260), Color("#997746"), 3)
+	# 原版卧室图中完整的无把手侧柜，双份并排，形成两层厚度。
+	var source := Rect2(672,384,24,224)
+	var panel_width: float = footprint.size.x / 2.0
+	for index in range(2):
+		var x: float = footprint.position.x + index * panel_width
+		if dorm_cabinet_revealed:
+			var split: float = 270.0 / footprint.size.y
+			draw_texture_rect_region(preload("res://scripts/cabinet_palette.gd").texture(), Rect2(x,80,panel_width,270), Rect2(source.position,Vector2(source.size.x,source.size.y*split)), Color(1,1,1,0.14))
+			draw_texture_rect_region(preload("res://scripts/cabinet_palette.gd").texture(), Rect2(x,350,panel_width,160), Rect2(source.position+Vector2(0,source.size.y*split),Vector2(source.size.x,source.size.y*(1.0-split))))
+		else:
+			draw_texture_rect_region(preload("res://scripts/cabinet_palette.gd").texture(), Rect2(x,80,panel_width,430), source)
+	# 三层接缝在侧面也清楚可见，避免将上、中两层画成一整块。
+	for y in [200,350]:
+		draw_line(Vector2(790,y), Vector2(1020,y), Color("#8d8063"), 3)
+		draw_line(Vector2(790,y+3), Vector2(1020,y+3), Color("#ded0ac"), 2)
+	_text(Vector2(800,66), "柜子堆 · 中层透视" if dorm_cabinet_revealed else "三层柜子堆", 20)
+
+func _draw_dorm_basin(rect: Rect2, laundry: bool) -> void:
+	draw_rect(rect, Color("#829c9b"))
+	draw_rect(rect.grow(-12), Color("#edf1e9"))
+	var bowl := rect.grow(-27)
+	draw_rect(bowl, Color("#adcfd2"))
+	draw_circle(bowl.get_center(), 6, Color("#718e92"))
+	var faucet := rect.position + Vector2(rect.size.x * 0.55, 14)
+	draw_line(faucet, faucet + Vector2(-8, 22), Color("#71868c"), 6)
+	if laundry:
+		for index in range(5):
+			draw_line(rect.position + Vector2(16, 39 + index * 16), rect.position + Vector2(38, 45 + index * 16), Color("#c6d5cf"), 3)
+
+func _configure_dorm_wet_room() -> void:
+	map_size = Vector2(780, 700)
+	_empty_room_walls()
+	_point(Vector2(390, 580), "开门返回宿舍", "dorm_wet_exit", 48.0)
+	if place == "宿舍厕所":
+		_block(Rect2(300, 245, 180, 230))
+	else:
+		_block(Rect2(100, 100, 95, 75))
+
+func _draw_dorm_wet_room() -> void:
+	draw_rect(Rect2(Vector2.ZERO, map_size), Color("#dce3dc"))
+	draw_rect(Rect2(80, 80, 620, 540), Color("#bfceca"))
+	for x in range(80, 701, 60):
+		draw_line(Vector2(x, 80), Vector2(x, 620), Color("#a6b9b4"), 1)
+	for y in range(80, 621, 60):
+		draw_line(Vector2(80, y), Vector2(700, y), Color("#a6b9b4"), 1)
+	draw_rect(Rect2(350, 602, 80, 36), Color("#766b59"))
+	draw_rect(Rect2(354, 606, 72, 28), Color("#dfddcb"))
+	draw_circle(Vector2(416, 619), 3, Color("#7e735b"))
+	_text(Vector2(460, 600), "门 · 返回宿舍", 21)
+	if place == "宿舍洗澡间":
+		_text(Vector2(310, 60), "洗澡间", 25)
+		draw_rect(Rect2(100, 100, 95, 75), Color("#af9e83"))
+		_text(Vector2(108, 93), "衣架", 19)
+		for x in [120, 146, 172]:
+			draw_arc(Vector2(x, 132), 10, 0, PI, 12, Color("#6d7a76"), 3)
+		draw_line(Vector2(585, 120), Vector2(585, 160), Color("#718a8f"), 8)
+		draw_line(Vector2(585, 160), Vector2(550, 185), Color("#718a8f"), 8)
+		draw_circle(Vector2(545, 190), 17, Color("#94afb5"))
+		for index in range(5):
+			draw_line(Vector2(520 + index * 14, 216), Vector2(510 + index * 14, 248), Color("#8dbac9"), 2)
+	else:
+		_text(Vector2(310, 60), "厕所", 25)
+		draw_rect(Rect2(600, 95, 85, 60), Color("#82969a"))
+		draw_rect(Rect2(606, 101, 73, 48), Color("#bddfe2"))
+		draw_line(Vector2(642, 101), Vector2(642, 149), Color("#f4f3e9"), 3)
+		# 蹲便器：两侧踏板，中间纵向便槽。
+		draw_rect(Rect2(300, 245, 180, 230), Color("#f2f3e9"))
+		draw_style_box(_dorm_rail_surface(), Rect2(351, 272, 78, 170))
+		draw_rect(Rect2(366, 285, 48, 140), Color("#9bbab9"))
+		for y in range(270, 455, 25):
+			draw_line(Vector2(315, y), Vector2(340, y), Color("#c2cdc5"), 3)
+			draw_line(Vector2(440, y), Vector2(465, y), Color("#c2cdc5"), 3)
