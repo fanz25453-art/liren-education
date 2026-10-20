@@ -23,7 +23,7 @@ const TIME_TINTS := [Color(0.98, 0.99, 1.0), Color(1.0, 1.0, 1.0), Color(1.0, 0.
 const INDOOR_NIGHT_TINT := Color(0.96, 0.91, 0.82)
 const INDOOR_PLACES := [
 	"教学楼男厕", "二层第一教室", "一楼办公室", "教学楼一楼内走廊", "食堂内部",
-	"二号空房间", "小卖部内部", "白房内部", "宿舍一楼小房间",
+	"二号空房间", "会议室内部", "小食堂内部", "小卖部内部", "白房内部", "宿舍一楼小房间",
 	"男生宿舍内部", "男生宿舍 F2", "男生宿舍 F3",
 	"宿舍尽头房间一", "宿舍尽头房间二", "宿舍洗澡间", "宿舍厕所"
 ]
@@ -40,6 +40,7 @@ var bed_saved_z_index: int = 0
 var game_menu: CanvasLayer
 var debug_panel: CanvasLayer
 var cabinet_view: CanvasLayer
+var education_sign_view: CanvasLayer
 var football_invite: CanvasLayer
 var football_game: CanvasLayer
 var wqy: StaticBody2D
@@ -101,17 +102,21 @@ func _ready() -> void:
 	football_game = load("res://scripts/dorm_football.gd").new()
 	add_child(football_game)
 	football_game.state_changed.connect(_sync_player_controls)
-	_load_place("校园 G0", Vector2(580, 2020))
+	education_sign_view=load("res://scripts/education_sign_view.gd").new()
+	add_child(education_sign_view)
+	education_sign_view.view_state_changed.connect(_sync_player_controls)
+	_load_place("校园 G0", Vector2(100, 2020))
 
 
 func _process(_delta: float) -> void:
 	dorm_transition_cooldown = maxf(dorm_transition_cooldown - _delta, 0.0)
 	_update_dorm_stairs()
 	_update_teaching_passage()
+	map.update_dorm_occlusion(map.to_local(player.global_position))
 	_update_dialogue()
 	_update_time_ui()
 
-	if place in ["教学楼 F2", "教学楼 F3", "教学楼 F4", "教学楼 F5", "教学楼男厕", "食堂内部", "二号空房间", "小卖部内部", "白房内部", "宿舍一楼小房间", "宿舍洗澡间", "宿舍厕所", "二层第一教室", "一楼办公室"]:
+	if place in ["教学楼 F2", "教学楼 F3", "教学楼 F4", "教学楼 F5", "教学楼男厕", "食堂内部", "二号空房间", "会议室内部", "小食堂内部", "小卖部内部", "白房内部", "宿舍一楼小房间", "宿舍洗澡间", "宿舍厕所", "二层第一教室", "一楼办公室"]:
 		_frame_area()
 
 	_sync_player_controls()
@@ -414,20 +419,23 @@ func _interact() -> void:
 		"rest_dorm_locked":
 			message = "这边是宿舍，暂时不能进入。"
 
+		"education_sign_view":
+			education_sign_view.open(day_cycle.period==3)
+
 		"noticeboard":
 			noticeboard_view.show()
 
 		"left_up":
-			_load_place("教学楼前平台", Vector2(640, 1355))
+			_load_place("教学楼前平台", Vector2(160, 1355))
 
 		"right_up":
-			_load_place("教学楼前平台", Vector2(1120, 1355))
+			_load_place("教学楼前平台", Vector2(640, 1355))
 
 		"left_down":
-			_load_place("校园 G0", Vector2(640, 1515))
+			_load_place("校园 G0", Vector2(160, 1515))
 
 		"right_down":
-			_load_place("校园 G0", Vector2(1120, 1515))
+			_load_place("校园 G0", Vector2(640, 1515))
 
 		"side_up":
 			_load_place("教学楼前平台", Vector2(1360, 1290))
@@ -518,7 +526,7 @@ func _interact() -> void:
 			_start_cb_dialogue()
 
 		"white_house_enter":
-			_load_place("白房内部", Vector2(770, 350))
+			_load_place("白房内部",map.white_house_indoor_exit_position()+Vector2(-60,0))
 
 		"white_house_exit":
 			_load_place("校园 G0",map.campus_entrance_position("white_house_enter")+Vector2(20,0))
@@ -527,15 +535,20 @@ func _interact() -> void:
 			message = "此入口仅限女生进入，请从右侧男生宿舍入口进入。"
 
 		"dorm_small_room_enter":
+			map.dorm_small_room_is_laundry=false
 			dorm_small_room_return = Vector2(4480, 310)
 			_load_place("宿舍一楼小房间", Vector2(350, 390))
 
 		"dorm_left_small_room_enter":
+			map.dorm_small_room_is_laundry=true
 			dorm_small_room_return = Vector2(-180, 310)
 			_load_place("宿舍一楼小房间", Vector2(350, 390))
 
 		"dorm_small_room_exit":
 			_load_place("男生宿舍内部", dorm_small_room_return)
+
+		"dorm_fourth_stairs_locked":
+			message = "通往四楼的铁门锁着，暂时不能上楼。"
 
 		"dorm_left_stairs_locked":
 			message = "铁门锁着，楼梯暂不开放。"
@@ -552,7 +565,7 @@ func _interact() -> void:
 		"dorm_shower_enter", "dorm_toilet_enter":
 			dorm_wet_return_room = place
 			dorm_wet_return_position = Vector2(715, 1245) if action == "dorm_shower_enter" else Vector2(715, 1555)
-			_load_place("宿舍洗澡间" if action == "dorm_shower_enter" else "宿舍厕所", Vector2(390, 530))
+			_load_place("宿舍洗澡间" if action == "dorm_shower_enter" else "宿舍厕所", map.dorm_wet_room_spawn())
 
 		"dorm_wet_exit":
 			_load_place(dorm_wet_return_room, dorm_wet_return_position)
@@ -571,6 +584,18 @@ func _interact() -> void:
 
 		"dorm_room_closed":
 			message = "这是别人的宿舍，不能进入。"
+
+		"meeting_room_enter":
+			_load_place("会议室内部",Vector2(500,205))
+
+		"small_canteen_enter":
+			_load_place("小食堂内部",Vector2(550,205))
+
+		"meeting_room_exit":
+			_load_place("校园 G0",map.campus_entrance_position("meeting_room_enter")+Vector2(0,-25))
+
+		"small_canteen_exit":
+			_load_place("校园 G0",map.campus_entrance_position("small_canteen_enter")+Vector2(0,-25))
 
 		"second_room_enter":
 			_load_place("二号空房间", Vector2(160, 190))
@@ -591,7 +616,7 @@ func _interact() -> void:
 			_load_place("食堂内部", Vector2(1150, 180))
 
 		"canteen_exit_left":
-			_load_place("校园 G0", Vector2(1370, 1780))
+			_load_place("校园 G0", map.campus_entrance_position("canteen_from_left")+Vector2(-30,0))
 
 		"canteen_exit_upper":
 			_load_place("校园 G0", map.campus_entrance_position("canteen_from_upper")+Vector2(0,-20))
@@ -603,6 +628,7 @@ func _interact() -> void:
 
 func _load_place(next_place: String, spawn: Vector2) -> void:
 	if cabinet_view != null: cabinet_view.close()
+	if education_sign_view != null: education_sign_view.close()
 	if football_invite != null: football_invite.close()
 	if football_game != null: football_game.close()
 	_end_meal_seating()
@@ -618,21 +644,23 @@ func _load_place(next_place: String, spawn: Vector2) -> void:
 	dialogue_lines.clear()
 	dialogue_index = 0
 
+	# 先确定目标场景缩放，再创建墙体，避免切换室内外时碰撞先以旧缩放注册。
+	var outside: bool = place in ["校园 G0", "教学楼前平台", "休息区"]
+	var world_scale: float = sqrt(outdoor_area_multiplier) if outside else 1.0
+	map.scale = Vector2.ONE * world_scale
 	map.configure(place)
 	npc.set_active(place == "二层第一教室")
 	office_npc.set_active(place == "一楼办公室")
 	shop_merchant.set_active(place == "小卖部内部")
 	wqy.set_active(place == "宿舍尽头房间一")
 
-	var outside: bool = place in ["校园 G0", "教学楼前平台", "休息区"]
-	var world_scale: float = sqrt(outdoor_area_multiplier) if outside else 1.0
-	map.scale = Vector2.ONE * world_scale
 	npc.global_position = map.to_global(Vector2(935, 1120))
 	office_npc.global_position = map.to_global(Vector2(260, 274))
 	shop_merchant.global_position = map.to_global(Vector2(480, 390))
 	wqy.global_position = map.to_global(Vector2(590, 235))
 	_apply_player_place_size()
 	player.position = spawn * world_scale
+	map.update_dorm_occlusion(map.to_local(player.global_position))
 	player.velocity = Vector2.ZERO
 	player.movement_enabled = true
 
@@ -653,7 +681,7 @@ func _load_place(next_place: String, spawn: Vector2) -> void:
 	_update_dialogue()
 	_update_time_ui()
 
-	if place in ["教学楼 F2", "教学楼 F3", "教学楼 F4", "教学楼 F5", "教学楼男厕", "食堂内部", "二号空房间", "小卖部内部", "白房内部", "宿舍一楼小房间", "宿舍洗澡间", "宿舍厕所", "二层第一教室", "一楼办公室"]:
+	if place in ["教学楼 F2", "教学楼 F3", "教学楼 F4", "教学楼 F5", "教学楼男厕", "食堂内部", "二号空房间", "会议室内部", "小食堂内部", "小卖部内部", "白房内部", "宿舍一楼小房间", "宿舍洗澡间", "宿舍厕所", "二层第一教室", "一楼办公室"]:
 		_frame_area()
 
 	camera.reset_smoothing()
@@ -761,7 +789,7 @@ func _enter_teaching_west_floor(floor_number: int) -> void:
 	_load_place("教学楼 F%d" % floor_number, Vector2(-20, top + 136))
 
 func _sync_player_controls() -> void:
-	player.movement_enabled = (football_game == null or not football_game.is_open()) and (football_invite == null or not football_invite.is_open()) and (cabinet_view == null or not cabinet_view.is_open()) and (debug_panel == null or not debug_panel.is_open()) and message.is_empty() and not noticeboard_view.visible and (game_menu == null or not game_menu.is_open()) and not meal_seated and not bed_transition_busy and not is_instance_valid(active_bed_ladder)
+	player.movement_enabled = (education_sign_view == null or not education_sign_view.is_open()) and (football_game == null or not football_game.is_open()) and (football_invite == null or not football_invite.is_open()) and (cabinet_view == null or not cabinet_view.is_open()) and (debug_panel == null or not debug_panel.is_open()) and message.is_empty() and not noticeboard_view.visible and (game_menu == null or not game_menu.is_open()) and not meal_seated and not bed_transition_busy and not is_instance_valid(active_bed_ladder)
 
 func _bed_landing_is_clear(ladder: Node2D) -> bool:
 	var query := PhysicsShapeQueryParameters2D.new()

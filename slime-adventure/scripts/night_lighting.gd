@@ -34,8 +34,9 @@ func configure(map: Node2D) -> void:
 		_add_hidden_area(Rect2(-1390,500,1140,1280), 0.18, "rest_area_fill")
 		for base in GROUND_LIGHT_BASES:
 			_add_ground_light(base)
-		_add_hidden_area(Rect2(240,1430,1240,660),0.20,"gate_plaza_ground")
+		_add_hidden_area(Rect2(-240,1430,1240,660),0.20,"gate_plaza_ground")
 		_add_hidden_area(Rect2(1460,1180,map.CAMPUS_RIGHT-1460,260),0.18,"east_plaza_ground")
+		_add_hidden_area(Rect2(map.canteen.end.x,1440,map.CAMPUS_RIGHT-map.canteen.end.x,650),0.16,"cleared_east_ground")
 		_add_hidden_area(map.outdoor_court_transform()*map.playground,0.12,"sports_ground")
 		# 宿舍上方的横向通道补光，灯具视为被建筑遮挡。
 		_light(Vector2(map.dorm.get_center().x,620),Vector2(map.dorm.size.x/364.0,0.65),0.48)
