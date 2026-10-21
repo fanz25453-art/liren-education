@@ -1,0 +1,11 @@
+[gd_scene load_steps=2 format=3]
+[ext_resource type="PackedScene" path="res://scenes/characters/npc.tscn" id="1"]
+
+[node name="ShopMerchant" instance=ExtResource("1")]
+visible = false
+idle_animation = &"idle_left"
+display_name = "商户"
+dialogue = "欢迎光临。"
+
+[node name="NameLabel" parent="." index="2"]
+text = "商户"
